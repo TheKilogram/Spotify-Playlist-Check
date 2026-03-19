@@ -9,6 +9,7 @@ import {
   getPlaylistTrackItems,
   getSavedTrackItems,
   getSavedTracksTotal,
+  getUserPlaylists,
   handleSpotifyRedirect,
   loadStoredSpotifySession,
   mapSpotifyTrack,
@@ -92,6 +93,10 @@ function loadStoredTheme(): ThemeId {
 
 function dedupeTracks(tracks: GameTrack[]) {
   return Array.from(new Map(tracks.map((track) => [track.id, track])).values());
+}
+
+function dedupeById<T extends { id: string }>(items: T[]) {
+  return Array.from(new Map(items.map((item) => [item.id, item])).values());
 }
 
 function pickRandomTrack(pool: GameTrack[], recentIds: string[]) {
@@ -303,12 +308,22 @@ export default function App() {
     setError(null);
 
     try {
-      const [profile, playlistItems, likedSongsTotal] = await withFreshSession(async (nextSession) =>
-        Promise.all([
-          getCurrentUserProfile(nextSession.accessToken),
-          getCurrentUserPlaylists(nextSession.accessToken),
-          getSavedTracksTotal(nextSession.accessToken),
-        ]),
+      const { profile, playlistItems, likedSongsTotal } = await withFreshSession(
+        async (nextSession) => {
+          const profile = await getCurrentUserProfile(nextSession.accessToken);
+          const [libraryPlaylists, profilePlaylists, likedSongsTotal] =
+            await Promise.all([
+              getCurrentUserPlaylists(nextSession.accessToken),
+              getUserPlaylists(nextSession.accessToken, profile.id).catch(() => []),
+              getSavedTracksTotal(nextSession.accessToken),
+            ]);
+
+          return {
+            profile,
+            playlistItems: dedupeById([...libraryPlaylists, ...profilePlaylists]),
+            likedSongsTotal,
+          };
+        },
       );
 
       setProfileName(profile.display_name?.trim() || profile.id);
@@ -323,7 +338,7 @@ export default function App() {
         ),
         imageUrl: playlist.images?.[0]?.url ?? null,
         ownerName: playlist.owner?.display_name?.trim() || 'Spotify user',
-        trackCount: playlist.tracks?.total ?? 0,
+        trackCount: playlist.items?.total ?? playlist.tracks?.total ?? 0,
       })) satisfies CollectionSummary[];
 
       const likedSongsCollection: CollectionSummary = {
@@ -813,13 +828,6 @@ export default function App() {
 
             {activeRound ? (
               <div className="game-stage">
-                <div className="round-topline">
-                  <span className={`source-pill ${activeRound.isOnList ? 'list' : 'wild'}`}>
-                    {activeRound.sourceLabel}
-                  </span>
-                  <span className="seed-copy">{activeRound.seedLabel}</span>
-                </div>
-
                 <div className="track-hero">
                   <div className="album-art-frame">
                     {activeRound.track.albumImageUrl ? (
@@ -839,7 +847,7 @@ export default function App() {
                     <p className="track-album">{activeRound.track.albumName}</p>
                     <div className="track-detail-row">
                       <span>{collectionState?.summary.name ?? 'Selected collection'}</span>
-                      <span>{activeRound.isOnList ? 'List track' : 'Wildcard'}</span>
+                      <span>Make the call</span>
                     </div>
                   </div>
                 </div>

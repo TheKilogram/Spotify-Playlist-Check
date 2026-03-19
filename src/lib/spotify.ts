@@ -320,8 +320,21 @@ export async function getCurrentUserPlaylists(accessToken: string) {
     description: string | null;
     images?: Array<{ url: string }>;
     owner?: { display_name?: string | null };
+    items?: { total?: number };
     tracks?: { total?: number };
   }>(accessToken, '/me/playlists?limit=50');
+}
+
+export async function getUserPlaylists(accessToken: string, userId: string) {
+  return getAllSpotifyItems<{
+    id: string;
+    name: string;
+    description: string | null;
+    images?: Array<{ url: string }>;
+    owner?: { display_name?: string | null };
+    items?: { total?: number };
+    tracks?: { total?: number };
+  }>(accessToken, `/users/${encodeURIComponent(userId)}/playlists?limit=50`);
 }
 
 export async function getSavedTrackItems(accessToken: string) {

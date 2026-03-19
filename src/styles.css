@@ -308,7 +308,6 @@ a {
 
 .panel-heading,
 .auth-row,
-.round-topline,
 .reveal-actions {
   display: flex;
   align-items: center;
@@ -316,8 +315,7 @@ a {
   gap: 10px;
 }
 
-.state-pill,
-.source-pill {
+.state-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -331,13 +329,12 @@ a {
 }
 
 .state-pill.good,
-.source-pill.list {
+.state-pill.good {
   background: rgba(30, 215, 96, 0.12);
   color: var(--good);
 }
 
-.state-pill.warn,
-.source-pill.wild {
+.state-pill.warn {
   background: var(--accent-soft);
   color: var(--accent);
 }
@@ -345,7 +342,6 @@ a {
 .auth-copy,
 .track-artist,
 .track-album,
-.seed-copy,
 .micro-copy,
 .hint-copy,
 .collection-meta span,
@@ -499,15 +495,6 @@ a {
   display: grid;
   gap: 18px;
   height: 100%;
-}
-
-.round-topline {
-  align-items: flex-start;
-}
-
-.seed-copy {
-  max-width: 30ch;
-  text-align: right;
 }
 
 .track-hero {
@@ -874,13 +861,9 @@ a {
 
   .panel-heading,
   .auth-row,
-  .round-topline {
+  .reveal-actions {
     flex-direction: column;
     align-items: flex-start;
-  }
-
-  .seed-copy {
-    text-align: left;
   }
 
   .collection-card {
