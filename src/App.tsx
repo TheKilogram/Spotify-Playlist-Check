@@ -8,6 +8,7 @@ import {
   getFreshSpotifySession,
   getPlaylistTrackItems,
   getSavedTrackItems,
+  getSavedTracksTotal,
   handleSpotifyRedirect,
   loadStoredSpotifySession,
   mapSpotifyTrack,
@@ -172,10 +173,26 @@ async function buildCollectionState(
   session: SpotifySession,
   collection: CollectionSummary,
 ) {
-  const rawItems =
-    collection.kind === 'liked'
-      ? await getSavedTrackItems(session.accessToken)
-      : await getPlaylistTrackItems(session.accessToken, collection.id);
+  let rawItems;
+
+  try {
+    rawItems =
+      collection.kind === 'liked'
+        ? await getSavedTrackItems(session.accessToken)
+        : await getPlaylistTrackItems(session.accessToken, collection.id);
+  } catch (error) {
+    if (
+      collection.kind === 'playlist' &&
+      error instanceof Error &&
+      error.message.includes('Spotify API error (403)')
+    ) {
+      throw new Error(
+        `Spotify blocked track access for "${collection.name}". This can happen with some followed or private playlists even if they appear in your library.`,
+      );
+    }
+
+    throw error;
+  }
 
   const tracks = dedupeTracks(
     rawItems
@@ -286,10 +303,11 @@ export default function App() {
     setError(null);
 
     try {
-      const [profile, playlistItems] = await withFreshSession(async (nextSession) =>
+      const [profile, playlistItems, likedSongsTotal] = await withFreshSession(async (nextSession) =>
         Promise.all([
           getCurrentUserProfile(nextSession.accessToken),
           getCurrentUserPlaylists(nextSession.accessToken),
+          getSavedTracksTotal(nextSession.accessToken),
         ]),
       );
 
@@ -315,7 +333,7 @@ export default function App() {
         description: 'Everything you have saved to your Spotify library.',
         imageUrl: null,
         ownerName: profile.display_name?.trim() || profile.id,
-        trackCount: 0,
+        trackCount: likedSongsTotal,
       };
 
       const nextCollections: CollectionSummary[] = [

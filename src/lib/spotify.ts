@@ -331,6 +331,14 @@ export async function getSavedTrackItems(accessToken: string) {
   );
 }
 
+export async function getSavedTracksTotal(accessToken: string) {
+  const payload = await spotifyRequest<{
+    total: number;
+  }>(accessToken, '/me/tracks?limit=1');
+
+  return payload.total;
+}
+
 export async function getPlaylistTrackItems(
   accessToken: string,
   playlistId: string,
