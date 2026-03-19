@@ -13,12 +13,20 @@ import {
   handleSpotifyRedirect,
   loadStoredSpotifySession,
   mapSpotifyTrack,
+  pausePlayback,
+  playTrackOnDevice,
   refreshSpotifySession,
   saveTrackToLibrary,
   searchSpotifyTracks,
   SpotifySession,
+  transferPlayback,
 } from './lib/spotify';
 import { getLastFmRecommendations } from './lib/lastfm';
+import {
+  ensureSpotifyWebPlaybackSdk,
+  SpotifyPlayerInstance,
+  SpotifyWebPlaybackState,
+} from './lib/webPlayback';
 import {
   AppConfig,
   CollectionState,
@@ -86,8 +94,11 @@ function trimText(value: string, fallback: string) {
   return cleaned || fallback;
 }
 
-function trackToEmbedUrl(trackId: string) {
-  return `https://open.spotify.com/embed/track/${trackId}?utm_source=generator`;
+function formatDuration(ms: number) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
 function sameSession(
@@ -183,10 +194,139 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const recentTrackIdsRef = useRef<string[]>([]);
+  const spotifyPlayerRef = useRef<SpotifyPlayerInstance | null>(null);
+  const [webPlaybackDeviceId, setWebPlaybackDeviceId] = useState<string | null>(null);
+  const [webPlaybackState, setWebPlaybackState] = useState<SpotifyWebPlaybackState | null>(
+    null,
+  );
+  const [webPlaybackStatus, setWebPlaybackStatus] = useState<string | null>(null);
+  const [isWebPlaybackReady, setIsWebPlaybackReady] = useState(false);
+  const [isActivatingPlayback, setIsActivatingPlayback] = useState(false);
 
   useEffect(() => {
     document.documentElement.dataset.theme = 'vinyl';
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let createdPlayer: SpotifyPlayerInstance | null = null;
+
+    async function setupWebPlayback() {
+      if (!session || !envConfig.spotifyClientId) {
+        spotifyPlayerRef.current?.disconnect();
+        spotifyPlayerRef.current = null;
+        setWebPlaybackDeviceId(null);
+        setWebPlaybackState(null);
+        setIsWebPlaybackReady(false);
+        setWebPlaybackStatus(null);
+        return;
+      }
+
+      if (spotifyPlayerRef.current || !window.isSecureContext) {
+        if (!window.isSecureContext) {
+          setWebPlaybackStatus('Browser playback requires a secure context.');
+        }
+        return;
+      }
+
+      try {
+        await ensureSpotifyWebPlaybackSdk();
+        if (cancelled || !window.Spotify) {
+          return;
+        }
+
+        const player = new window.Spotify.Player({
+          name: 'Playlist Detector',
+          volume: 0.8,
+          getOAuthToken: async (cb) => {
+            try {
+              const nextSession = await getFreshSpotifySession(envConfig.spotifyClientId);
+              if (nextSession?.accessToken) {
+                syncSession(nextSession);
+                cb(nextSession.accessToken);
+                return;
+              }
+            } catch {
+              // Fall back to the session token already in memory.
+            }
+
+            cb(session.accessToken);
+          },
+        });
+        createdPlayer = player;
+
+        player.addListener('ready', (payload) => {
+          const { device_id: deviceId } = payload as { device_id: string };
+          if (cancelled) {
+            return;
+          }
+
+          spotifyPlayerRef.current = player;
+          setWebPlaybackDeviceId(deviceId);
+          setIsWebPlaybackReady(true);
+          setWebPlaybackStatus(null);
+        });
+
+        player.addListener('not_ready', () => {
+          if (cancelled) {
+            return;
+          }
+
+          setIsWebPlaybackReady(false);
+          setWebPlaybackStatus('Browser player is temporarily unavailable.');
+        });
+
+        player.addListener('player_state_changed', (payload) => {
+          if (cancelled) {
+            return;
+          }
+
+          setWebPlaybackState((payload as SpotifyWebPlaybackState | null) ?? null);
+        });
+
+        player.addListener('initialization_error', (payload) => {
+          const { message } = payload as { message: string };
+          setWebPlaybackStatus(message);
+        });
+
+        player.addListener('authentication_error', (payload) => {
+          const { message } = payload as { message: string };
+          setWebPlaybackStatus(message);
+        });
+
+        player.addListener('account_error', () => {
+          setWebPlaybackStatus(
+            'Browser playback requires Spotify Premium and a supported browser.',
+          );
+        });
+
+        player.addListener('autoplay_failed', () => {
+          setWebPlaybackStatus('Press play once to enable browser audio.');
+        });
+
+        const connected = await player.connect();
+        if (!connected && !cancelled) {
+          setWebPlaybackStatus('Could not connect the browser player.');
+        }
+      } catch (sdkError) {
+        if (!cancelled) {
+          setWebPlaybackStatus(
+            sdkError instanceof Error ? sdkError.message : 'Browser player failed to start.',
+          );
+        }
+      }
+    }
+
+    void setupWebPlayback();
+
+    return () => {
+      cancelled = true;
+      if (createdPlayer && spotifyPlayerRef.current === createdPlayer) {
+        createdPlayer.disconnect();
+        spotifyPlayerRef.current = null;
+      }
+    };
+  }, [session]);
 
   function syncSession(nextSession: SpotifySession | null) {
     setSession((current) => (sameSession(current, nextSession) ? current : nextSession));
@@ -335,6 +475,22 @@ export default function App() {
     // Session changes should refresh library data.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.accessToken]);
+
+  useEffect(() => {
+    if (!round || !webPlaybackDeviceId || !session) {
+      return;
+    }
+
+    if (activePlayerTrackId && activePlayerTrackId !== round.track.id) {
+      void withFreshSession((nextSession) =>
+        pausePlayback(nextSession.accessToken, webPlaybackDeviceId),
+      ).catch(() => {
+        // Best-effort only.
+      });
+    }
+    // Intentionally keyed to track changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [round?.track.id]);
 
   const selectedCollection = useMemo(
     () => collections.find((collection) => collection.id === selectedCollectionId) ?? null,
@@ -597,6 +753,12 @@ export default function App() {
 
   function handleSignOut() {
     clearSpotifySession();
+    spotifyPlayerRef.current?.disconnect();
+    spotifyPlayerRef.current = null;
+    setWebPlaybackDeviceId(null);
+    setWebPlaybackState(null);
+    setIsWebPlaybackReady(false);
+    setWebPlaybackStatus(null);
     syncSession(null);
     setCollections([]);
     setCollectionState(null);
@@ -607,6 +769,69 @@ export default function App() {
 
   const isConfigured = Boolean(envConfig.spotifyClientId && envConfig.lastFmApiKey);
   const activeRound = collectionState && round ? round : null;
+  const activePlayerTrackId = webPlaybackState?.track_window.current_track.id ?? null;
+  const isCurrentRoundPlaying = Boolean(
+    activeRound &&
+      activePlayerTrackId === activeRound.track.id &&
+      webPlaybackState &&
+      !webPlaybackState.paused,
+  );
+  const currentPlaybackPositionMs =
+    activeRound && activePlayerTrackId === activeRound.track.id
+      ? webPlaybackState?.position ?? 0
+      : 0;
+  const currentPlaybackDurationMs =
+    activeRound && activePlayerTrackId === activeRound.track.id
+      ? webPlaybackState?.duration ?? 0
+      : 0;
+
+  async function handlePlaybackToggle() {
+    if (!activeRound || !webPlaybackDeviceId || !spotifyPlayerRef.current) {
+      setWebPlaybackStatus('Browser player is still starting.');
+      return;
+    }
+
+    setIsActivatingPlayback(true);
+    setError(null);
+
+    try {
+      const nextSession = await withFreshSession(async (freshSession) => freshSession);
+      await spotifyPlayerRef.current.activateElement();
+
+      if (activePlayerTrackId === activeRound.track.id) {
+        await spotifyPlayerRef.current.togglePlay();
+      } else {
+        await transferPlayback(nextSession.accessToken, webPlaybackDeviceId, false);
+        await playTrackOnDevice(
+          nextSession.accessToken,
+          webPlaybackDeviceId,
+          activeRound.track.spotifyUri,
+        );
+      }
+
+      setWebPlaybackStatus(null);
+    } catch (playbackError) {
+      setWebPlaybackStatus(
+        playbackError instanceof Error
+          ? playbackError.message
+          : 'Could not start browser playback.',
+      );
+    } finally {
+      setIsActivatingPlayback(false);
+    }
+  }
+
+  async function handleSeek(positionMs: number) {
+    if (!spotifyPlayerRef.current || !currentPlaybackDurationMs) {
+      return;
+    }
+
+    try {
+      await spotifyPlayerRef.current.seek(positionMs);
+    } catch {
+      setWebPlaybackStatus('Could not seek this track.');
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -616,16 +841,6 @@ export default function App() {
           <div className="brand-block">
             <p className="eyebrow">Spotify Playlist Detector</p>
             <h1>Find the songs you forgot you loved.</h1>
-          </div>
-          <div className="hero-meta">
-            <div className="hero-token">
-              <span className="token-label">Mode</span>
-              <strong>Memory Test</strong>
-            </div>
-            <div className="hero-token">
-              <span className="token-label">Status</span>
-              <strong>{session ? `Signed in${profileName ? ` as ${profileName}` : ''}` : 'Spotify required'}</strong>
-            </div>
           </div>
         </header>
 
@@ -793,20 +1008,62 @@ export default function App() {
                     <h2>{activeRound.track.name}</h2>
                     <p className="track-artist">{activeRound.track.artistLine}</p>
                     <p className="track-album">{activeRound.track.albumName}</p>
-                    <div className="track-detail-row">
-                      <span>Use memory only</span>
-                    </div>
                   </div>
                 </div>
 
-                <div className="embed-shell">
-                  <iframe
-                    key={activeRound.track.id}
-                    title={`${activeRound.track.name} embed`}
-                    src={trackToEmbedUrl(activeRound.track.id)}
-                    allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                    loading="lazy"
-                  />
+                <div className="embed-shell custom-player-shell">
+                  <div className="custom-player">
+                    <div className="player-main">
+                      <button
+                        type="button"
+                        className={`player-toggle ${isCurrentRoundPlaying ? 'playing' : ''}`}
+                        onClick={() => void handlePlaybackToggle()}
+                        disabled={!isWebPlaybackReady || isActivatingPlayback}
+                        aria-label={isCurrentRoundPlaying ? 'Pause track' : 'Play track'}
+                      >
+                        <span className="player-toggle-icon">
+                          {isCurrentRoundPlaying ? '❚❚' : '▶'}
+                        </span>
+                      </button>
+
+                      <div className="player-copy">
+                        <strong>{activeRound.track.name}</strong>
+                        <span>{activeRound.track.artistLine}</span>
+                      </div>
+
+                      <a
+                        className="player-open"
+                        href={activeRound.track.spotifyUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open
+                      </a>
+                    </div>
+
+                    <div className="player-progress">
+                      <span>{formatDuration(currentPlaybackPositionMs)}</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max={Math.max(currentPlaybackDurationMs, 1)}
+                        value={Math.min(currentPlaybackPositionMs, currentPlaybackDurationMs || 0)}
+                        onChange={(event) => void handleSeek(Number(event.target.value))}
+                        disabled={!isWebPlaybackReady || currentPlaybackDurationMs <= 0}
+                        aria-label="Track progress"
+                      />
+                      <span>{formatDuration(currentPlaybackDurationMs)}</span>
+                    </div>
+
+                    <div className="player-status-row">
+                      <span className={`player-status ${isWebPlaybackReady ? 'ready' : 'pending'}`}>
+                        {isWebPlaybackReady ? 'Browser player ready' : 'Starting browser player'}
+                      </span>
+                      {webPlaybackStatus ? (
+                        <span className="player-status-note">{webPlaybackStatus}</span>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="answer-row">

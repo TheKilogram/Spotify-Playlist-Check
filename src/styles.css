@@ -234,34 +234,6 @@ a {
   text-transform: uppercase;
 }
 
-.hero-meta {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  min-width: min(360px, 100%);
-}
-
-.hero-token {
-  display: grid;
-  gap: 3px;
-  padding: 9px 11px;
-  border: 1px solid var(--border);
-  border-radius: calc(var(--panel-radius) - 2px);
-  background: var(--surface-strong);
-}
-
-.token-label {
-  font-size: 0.68rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.hero-token strong {
-  font-size: 0.92rem;
-  font-weight: 800;
-}
-
 .status-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -519,38 +491,140 @@ a {
   align-content: center;
 }
 
-.track-detail-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 2px;
-}
-
-.track-detail-row span {
-  display: inline-flex;
-  align-items: center;
-  min-height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--chip-radius);
-  background: rgba(255, 255, 255, 0.02);
-  color: var(--muted);
-  font-size: 0.86rem;
-  font-weight: 700;
-}
-
 .embed-shell {
-  min-height: 352px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: calc(var(--panel-radius) - 2px);
   background: rgba(255, 255, 255, 0.02);
 }
 
-.embed-shell iframe {
+.custom-player-shell {
+  min-height: 0;
+}
+
+.custom-player {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+}
+
+.player-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+}
+
+.player-toggle {
+  width: 56px;
+  height: 56px;
+  border: 1px solid rgba(29, 185, 84, 0.42);
+  border-radius: 999px;
+  background: var(--accent);
+  color: #041008;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.player-toggle.playing {
+  background: rgba(29, 185, 84, 0.18);
+  color: var(--good);
+}
+
+.player-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.player-toggle-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
-  min-height: 352px;
-  border: 0;
+}
+
+.player-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.player-copy strong,
+.player-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-copy strong {
+  font-size: 1rem;
+}
+
+.player-copy span {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.player-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  text-decoration: none;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.player-progress {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.player-progress input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.player-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.player-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.player-status.ready {
+  background: rgba(29, 185, 84, 0.12);
+  color: var(--good);
+}
+
+.player-status.pending {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+}
+
+.player-status-note {
+  color: var(--muted);
+  font-size: 0.84rem;
 }
 
 .answer-row {
@@ -756,7 +830,6 @@ a {
   backdrop-filter: blur(16px);
 }
 
-:root[data-theme='glass'] .hero-token,
 :root[data-theme='glass'] .collection-card,
 :root[data-theme='glass'] .embed-shell,
 :root[data-theme='glass'] .reveal-panel {
@@ -854,11 +927,6 @@ a {
     grid-template-columns: 1fr;
   }
 
-  .hero-meta {
-    grid-template-columns: 1fr;
-    min-width: 0;
-  }
-
   .panel-heading,
   .auth-row,
   .reveal-actions {
@@ -877,6 +945,15 @@ a {
 
   .button,
   .guess-button {
+    width: 100%;
+  }
+
+  .player-main,
+  .player-progress {
+    grid-template-columns: 1fr;
+  }
+
+  .player-open {
     width: 100%;
   }
 

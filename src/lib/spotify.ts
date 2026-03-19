@@ -8,6 +8,8 @@ const PKCE_KEY = 'playlist-detector.spotify-pkce.v1';
 const EXPIRY_BUFFER_MS = 60_000;
 
 const SCOPES = [
+  'streaming',
+  'user-modify-playback-state',
   'playlist-read-private',
   'playlist-read-collaborative',
   'playlist-modify-public',
@@ -399,6 +401,53 @@ export async function saveTrackToLibrary(accessToken: string, trackId: string) {
   });
 
   await spotifyRequest<void>(accessToken, `/me/tracks?${params.toString()}`, {
+    method: 'PUT',
+  });
+}
+
+export async function transferPlayback(
+  accessToken: string,
+  deviceId: string,
+  play = false,
+) {
+  await spotifyRequest<void>(accessToken, '/me/player', {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      device_ids: [deviceId],
+      play,
+    }),
+  });
+}
+
+export async function playTrackOnDevice(
+  accessToken: string,
+  deviceId: string,
+  spotifyUri: string,
+) {
+  const params = new URLSearchParams({
+    device_id: deviceId,
+  });
+
+  await spotifyRequest<void>(accessToken, `/me/player/play?${params.toString()}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      uris: [spotifyUri],
+    }),
+  });
+}
+
+export async function pausePlayback(accessToken: string, deviceId: string) {
+  const params = new URLSearchParams({
+    device_id: deviceId,
+  });
+
+  await spotifyRequest<void>(accessToken, `/me/player/pause?${params.toString()}`, {
     method: 'PUT',
   });
 }
