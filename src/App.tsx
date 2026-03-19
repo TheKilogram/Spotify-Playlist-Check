@@ -38,27 +38,27 @@ const THEME_OPTIONS: Array<{
 }> = [
   {
     id: 'arcade',
-    label: 'Arcade Cabinet',
+    label: 'Signal Grid',
     short: '01',
   },
   {
     id: 'sunset',
-    label: 'Editorial Sunset',
+    label: 'Studio Cut',
     short: '02',
   },
   {
     id: 'vinyl',
-    label: 'Sleeve Study',
+    label: 'Mono Deck',
     short: '03',
   },
   {
     id: 'glass',
-    label: 'Toybox Bloom',
+    label: 'Night Shift',
     short: '04',
   },
   {
     id: 'brutalist',
-    label: 'Control Block',
+    label: 'Hardline',
     short: '05',
   },
 ];
