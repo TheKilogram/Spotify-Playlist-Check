@@ -1,10 +1,3 @@
-export type ThemeId =
-  | 'arcade'
-  | 'sunset'
-  | 'vinyl'
-  | 'glass'
-  | 'brutalist';
-
 export interface AppConfig {
   spotifyClientId: string;
   lastFmApiKey: string;

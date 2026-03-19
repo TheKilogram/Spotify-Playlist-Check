@@ -26,43 +26,9 @@ import {
   GameRound,
   GameTrack,
   ScoreBoard,
-  ThemeId,
 } from './types';
 
-const THEME_KEY = 'playlist-detector.theme.v1';
 const MAX_RECENT_TRACKS = 20;
-
-const THEME_OPTIONS: Array<{
-  id: ThemeId;
-  label: string;
-  short: string;
-}> = [
-  {
-    id: 'arcade',
-    label: 'Signal Grid',
-    short: '01',
-  },
-  {
-    id: 'sunset',
-    label: 'Studio Cut',
-    short: '02',
-  },
-  {
-    id: 'vinyl',
-    label: 'Mono Deck',
-    short: '03',
-  },
-  {
-    id: 'glass',
-    label: 'Night Shift',
-    short: '04',
-  },
-  {
-    id: 'brutalist',
-    label: 'Hardline',
-    short: '05',
-  },
-];
 
 const EMPTY_SCORE: ScoreBoard = {
   correct: 0,
@@ -75,21 +41,6 @@ const envConfig: AppConfig = {
   spotifyClientId: import.meta.env.VITE_SPOTIFY_CLIENT_ID?.trim() ?? '',
   lastFmApiKey: import.meta.env.VITE_LASTFM_API_KEY?.trim() ?? '',
 };
-
-function loadStoredTheme(): ThemeId {
-  const raw = window.localStorage.getItem(THEME_KEY);
-  if (
-    raw === 'arcade' ||
-    raw === 'sunset' ||
-    raw === 'vinyl' ||
-    raw === 'glass' ||
-    raw === 'brutalist'
-  ) {
-    return raw;
-  }
-
-  return 'arcade';
-}
 
 function dedupeTracks(tracks: GameTrack[]) {
   return Array.from(new Map(tracks.map((track) => [track.id, track])).values());
@@ -215,7 +166,6 @@ async function buildCollectionState(
 }
 
 export default function App() {
-  const [theme, setTheme] = useState<ThemeId>(loadStoredTheme);
   const [session, setSession] = useState<SpotifySession | null>(() =>
     loadStoredSpotifySession(),
   );
@@ -235,9 +185,8 @@ export default function App() {
   const recentTrackIdsRef = useRef<string[]>([]);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    window.localStorage.setItem(THEME_KEY, theme);
-  }, [theme]);
+    document.documentElement.dataset.theme = 'vinyl';
+  }, []);
 
   function syncSession(nextSession: SpotifySession | null) {
     setSession((current) => (sameSession(current, nextSession) ? current : nextSession));
@@ -362,7 +311,7 @@ export default function App() {
           ? current
           : nextCollections[0]?.id ?? null,
       );
-      setNotice('Spotify library loaded. Pick a collection to start the game.');
+      setNotice('Library loaded.');
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -398,7 +347,7 @@ export default function App() {
     }
 
     setError(null);
-    setNotice(`Loading ${collection.name}...`);
+    setNotice('Loading songs...');
     setCollectionState(null);
     setRound(null);
     setScore(EMPTY_SCORE);
@@ -425,7 +374,7 @@ export default function App() {
         ),
       );
       setCollectionState(hydratedCollection);
-      setNotice(`${hydratedCollection.tracks.length} tracks ready. Rolling the first round...`);
+      setNotice('Starting round...');
       setSelectedCollectionId(hydratedCollection.summary.id);
       await loadNextRound(hydratedCollection);
     } catch (loadError) {
@@ -516,7 +465,7 @@ export default function App() {
           seedLabel: activeCollection.summary.name,
           revealed: false,
         });
-        setNotice('Track loaded from your collection.');
+        setNotice(null);
         return;
       }
 
@@ -533,7 +482,7 @@ export default function App() {
           seedLabel: recommendation.seedLabel,
           revealed: false,
         });
-        setNotice('Wildcard round loaded from Last.fm.');
+        setNotice(null);
         return;
       }
 
@@ -553,7 +502,7 @@ export default function App() {
         seedLabel: 'Fallback while Last.fm rerolled',
         revealed: false,
       });
-      setNotice('Last.fm ran out of fresh candidates, so this round used a list track.');
+      setNotice(null);
     } catch (roundError) {
       setError(
         roundError instanceof Error
@@ -633,7 +582,7 @@ export default function App() {
         ...current,
         added: current.added + 1,
       }));
-      setNotice(`Added "${round.track.name}" to ${collectionState.summary.name}.`);
+      setNotice('Song added.');
       await loadNextRound(updatedCollection);
     } catch (addError) {
       setError(
@@ -658,7 +607,6 @@ export default function App() {
 
   const isConfigured = Boolean(envConfig.spotifyClientId && envConfig.lastFmApiKey);
   const activeRound = collectionState && round ? round : null;
-  const activeCollectionName = collectionState?.summary.name ?? selectedCollection?.name ?? 'No list selected';
 
   return (
     <div className="app-shell">
@@ -671,8 +619,8 @@ export default function App() {
           </div>
           <div className="hero-meta">
             <div className="hero-token">
-              <span className="token-label">Active List</span>
-              <strong>{activeCollectionName}</strong>
+              <span className="token-label">Mode</span>
+              <strong>Memory Test</strong>
             </div>
             <div className="hero-token">
               <span className="token-label">Status</span>
@@ -846,8 +794,7 @@ export default function App() {
                     <p className="track-artist">{activeRound.track.artistLine}</p>
                     <p className="track-album">{activeRound.track.albumName}</p>
                     <div className="track-detail-row">
-                      <span>{collectionState?.summary.name ?? 'Selected collection'}</span>
-                      <span>Make the call</span>
+                      <span>Use memory only</span>
                     </div>
                   </div>
                 </div>
@@ -903,11 +850,7 @@ export default function App() {
                           disabled={isAddingTrack}
                           onClick={() => void handleAddTrack()}
                         >
-                          {isAddingTrack
-                            ? 'Adding...'
-                            : collectionState?.summary.kind === 'liked'
-                              ? 'Save to Liked Songs'
-                              : 'Add to playlist'}
+                          {isAddingTrack ? 'Adding...' : 'Add to my list'}
                         </button>
                         <button
                           className="button button-ghost"
@@ -942,20 +885,6 @@ export default function App() {
           </section>
         </main>
 
-        <div className="theme-dock" aria-label="Theme selector">
-          {THEME_OPTIONS.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              className={`theme-dock-button ${theme === option.id ? 'active' : ''}`}
-              onClick={() => setTheme(option.id)}
-              title={option.label}
-              aria-label={option.label}
-            >
-              {option.short}
-            </button>
-          ))}
-        </div>
       </div>
     </div>
   );
