@@ -133,6 +133,27 @@ function trackToEmbedUrl(trackId: string) {
   return `https://open.spotify.com/embed/track/${trackId}?utm_source=generator`;
 }
 
+function sameSession(
+  left: SpotifySession | null,
+  right: SpotifySession | null,
+) {
+  if (left === right) {
+    return true;
+  }
+
+  if (!left || !right) {
+    return false;
+  }
+
+  return (
+    left.accessToken === right.accessToken &&
+    left.refreshToken === right.refreshToken &&
+    left.expiresAt === right.expiresAt &&
+    left.scope === right.scope &&
+    left.tokenType === right.tokenType
+  );
+}
+
 function resultLabel(round: GameRound | null) {
   if (!round?.revealed) {
     return null;
@@ -196,6 +217,10 @@ export default function App() {
     window.localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
 
+  function syncSession(nextSession: SpotifySession | null) {
+    setSession((current) => (sameSession(current, nextSession) ? current : nextSession));
+  }
+
   useEffect(() => {
     void bootstrapSession();
     // Env config is fixed at build time.
@@ -207,7 +232,7 @@ export default function App() {
     setError(null);
 
     if (!envConfig.spotifyClientId) {
-      setSession(null);
+      syncSession(null);
       setIsBooting(false);
       return;
     }
@@ -215,13 +240,13 @@ export default function App() {
     try {
       const redirectedSession = await handleSpotifyRedirect(envConfig.spotifyClientId);
       if (redirectedSession) {
-        setSession(redirectedSession);
+        syncSession(redirectedSession);
       } else {
         const currentSession = await getFreshSpotifySession(envConfig.spotifyClientId);
-        setSession(currentSession);
+        syncSession(currentSession);
       }
     } catch (sessionError) {
-      setSession(null);
+      syncSession(null);
       clearSpotifySession();
       setError(
         sessionError instanceof Error
@@ -244,11 +269,11 @@ export default function App() {
 
     if (!nextSession) {
       clearSpotifySession();
-      setSession(null);
+      syncSession(null);
       throw new Error('Spotify session expired. Sign in again to continue.');
     }
 
-    setSession(nextSession);
+    syncSession(nextSession);
     return task(nextSession);
   }
 
@@ -327,7 +352,7 @@ export default function App() {
     void loadCollections();
     // Session changes should refresh library data.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session]);
+  }, [session?.accessToken]);
 
   const selectedCollection = useMemo(
     () => collections.find((collection) => collection.id === selectedCollectionId) ?? null,
@@ -590,7 +615,7 @@ export default function App() {
 
   function handleSignOut() {
     clearSpotifySession();
-    setSession(null);
+    syncSession(null);
     setCollections([]);
     setCollectionState(null);
     setRound(null);
