@@ -622,6 +622,21 @@ a {
   gap: 10px;
 }
 
+.player-autoplay-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.player-autoplay-toggle input {
+  accent-color: var(--accent);
+}
+
 .player-status {
   display: inline-flex;
   align-items: center;
@@ -712,6 +727,31 @@ a {
 
 .reveal-copy.bad {
   color: #ff9db2;
+}
+
+.add-panel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--panel-radius) - 2px);
+  background: rgba(29, 185, 84, 0.05);
+}
+
+.add-panel-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.add-panel-copy strong,
+.add-panel-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.add-panel-copy span {
+  color: var(--muted);
 }
 
 .hint-copy {

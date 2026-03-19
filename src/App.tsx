@@ -214,7 +214,10 @@ export default function App() {
   const [score, setScore] = useState<ScoreBoard>(EMPTY_SCORE);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pendingAddTrack, setPendingAddTrack] = useState<GameTrack | null>(null);
   const recentTrackIdsRef = useRef<string[]>([]);
+  const roundAdvanceTimeoutRef = useRef<number | null>(null);
+  const autoPlayAttemptedTrackIdRef = useRef<string | null>(null);
   const spotifyPlayerRef = useRef<SpotifyPlayerInstance | null>(null);
   const [webPlaybackDeviceId, setWebPlaybackDeviceId] = useState<string | null>(null);
   const [webPlaybackState, setWebPlaybackState] = useState<SpotifyWebPlaybackState | null>(
@@ -224,9 +227,35 @@ export default function App() {
   const [isWebPlaybackReady, setIsWebPlaybackReady] = useState(false);
   const [isActivatingPlayback, setIsActivatingPlayback] = useState(false);
   const [playerVolume, setPlayerVolume] = useState(80);
+  const [isAutoPlayEnabled, setIsAutoPlayEnabled] = useState(false);
+  const isConfigured = Boolean(envConfig.spotifyClientId && envConfig.lastFmApiKey);
+  const activeRound = collectionState && round ? round : null;
+  const activePlayerTrackId = webPlaybackState?.track_window.current_track.id ?? null;
+  const isCurrentRoundPlaying = Boolean(
+    activeRound &&
+      activePlayerTrackId === activeRound.track.id &&
+      webPlaybackState &&
+      !webPlaybackState.paused,
+  );
+  const currentPlaybackPositionMs =
+    activeRound && activePlayerTrackId === activeRound.track.id
+      ? webPlaybackState?.position ?? 0
+      : 0;
+  const currentPlaybackDurationMs =
+    activeRound && activePlayerTrackId === activeRound.track.id
+      ? webPlaybackState?.duration ?? 0
+      : 0;
 
   useEffect(() => {
     document.documentElement.dataset.theme = 'vinyl';
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (roundAdvanceTimeoutRef.current) {
+        window.clearTimeout(roundAdvanceTimeoutRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -490,6 +519,7 @@ export default function App() {
       setCollections([]);
       setCollectionState(null);
       setRound(null);
+      setPendingAddTrack(null);
       return;
     }
 
@@ -524,6 +554,26 @@ export default function App() {
     });
   }, [playerVolume]);
 
+  useEffect(() => {
+    if (!isAutoPlayEnabled || !activeRound || !isWebPlaybackReady || !webPlaybackDeviceId) {
+      return;
+    }
+
+    if (autoPlayAttemptedTrackIdRef.current === activeRound.track.id) {
+      return;
+    }
+
+    autoPlayAttemptedTrackIdRef.current = activeRound.track.id;
+
+    void playRoundTrack(activeRound).catch((playbackError) => {
+      setWebPlaybackStatus(
+        playbackError instanceof Error
+          ? playbackError.message
+          : 'Could not start browser playback.',
+      );
+    });
+  }, [activeRound, isAutoPlayEnabled, isWebPlaybackReady, webPlaybackDeviceId]);
+
   const selectedCollection = useMemo(
     () => collections.find((collection) => collection.id === selectedCollectionId) ?? null,
     [collections, selectedCollectionId],
@@ -534,11 +584,17 @@ export default function App() {
       return;
     }
 
+    if (roundAdvanceTimeoutRef.current) {
+      window.clearTimeout(roundAdvanceTimeoutRef.current);
+      roundAdvanceTimeoutRef.current = null;
+    }
+
     setError(null);
     setNotice('Loading songs...');
     setCollectionState(null);
     setRound(null);
     setScore(EMPTY_SCORE);
+    setPendingAddTrack(null);
     recentTrackIdsRef.current = [];
 
     try {
@@ -717,22 +773,31 @@ export default function App() {
     } satisfies GameRound;
 
     setRound(nextRound);
+    if (!round.isOnList) {
+      setPendingAddTrack(round.track);
+    }
     setScore((current) => ({
       correct: current.correct + (isCorrect ? 1 : 0),
       incorrect: current.incorrect + (isCorrect ? 0 : 1),
       newFinds: current.newFinds + (isCorrect && !round.isOnList ? 1 : 0),
       added: current.added,
     }));
+    scheduleNextRound();
+  }
 
-    if (round.isOnList) {
-      window.setTimeout(() => {
-        void loadNextRound();
-      }, 900);
+  function scheduleNextRound() {
+    if (roundAdvanceTimeoutRef.current) {
+      window.clearTimeout(roundAdvanceTimeoutRef.current);
     }
+
+    roundAdvanceTimeoutRef.current = window.setTimeout(() => {
+      roundAdvanceTimeoutRef.current = null;
+      void loadNextRound();
+    }, 900);
   }
 
   async function handleAddTrack() {
-    if (!collectionState || !round || round.isOnList || isAddingTrack) {
+    if (!collectionState || !pendingAddTrack || isAddingTrack) {
       return;
     }
 
@@ -742,15 +807,15 @@ export default function App() {
     try {
       await withFreshSession((nextSession) =>
         collectionState.summary.kind === 'liked'
-          ? saveTrackToLibrary(nextSession.accessToken, round.track.id)
+          ? saveTrackToLibrary(nextSession.accessToken, pendingAddTrack.id)
           : addTrackToPlaylist(
               nextSession.accessToken,
               collectionState.summary.id,
-              round.track.spotifyUri,
+              pendingAddTrack.spotifyUri,
             ),
       );
 
-      const updatedTracks = dedupeTracks([...collectionState.tracks, round.track]);
+      const updatedTracks = dedupeTracks([...collectionState.tracks, pendingAddTrack]);
       const updatedCollection = {
         ...collectionState,
         tracks: updatedTracks,
@@ -773,7 +838,7 @@ export default function App() {
         added: current.added + 1,
       }));
       setNotice('Song added.');
-      await loadNextRound(updatedCollection);
+      setPendingAddTrack(null);
     } catch (addError) {
       setError(
         addError instanceof Error
@@ -786,6 +851,11 @@ export default function App() {
   }
 
   function handleSignOut() {
+    if (roundAdvanceTimeoutRef.current) {
+      window.clearTimeout(roundAdvanceTimeoutRef.current);
+      roundAdvanceTimeoutRef.current = null;
+    }
+
     clearSpotifySession();
     spotifyPlayerRef.current?.disconnect();
     spotifyPlayerRef.current = null;
@@ -797,27 +867,33 @@ export default function App() {
     setCollections([]);
     setCollectionState(null);
     setRound(null);
+    setPendingAddTrack(null);
     setScore(EMPTY_SCORE);
     setNotice('Signed out of Spotify.');
   }
 
-  const isConfigured = Boolean(envConfig.spotifyClientId && envConfig.lastFmApiKey);
-  const activeRound = collectionState && round ? round : null;
-  const activePlayerTrackId = webPlaybackState?.track_window.current_track.id ?? null;
-  const isCurrentRoundPlaying = Boolean(
-    activeRound &&
-      activePlayerTrackId === activeRound.track.id &&
-      webPlaybackState &&
-      !webPlaybackState.paused,
-  );
-  const currentPlaybackPositionMs =
-    activeRound && activePlayerTrackId === activeRound.track.id
-      ? webPlaybackState?.position ?? 0
-      : 0;
-  const currentPlaybackDurationMs =
-    activeRound && activePlayerTrackId === activeRound.track.id
-      ? webPlaybackState?.duration ?? 0
-      : 0;
+  async function playRoundTrack(targetRound: GameRound) {
+    if (!webPlaybackDeviceId || !spotifyPlayerRef.current) {
+      throw new Error('Browser player is still starting.');
+    }
+
+    const nextSession = await withFreshSession(async (freshSession) => freshSession);
+    await spotifyPlayerRef.current.activateElement();
+
+    if (activePlayerTrackId === targetRound.track.id) {
+      if (webPlaybackState?.paused) {
+        await spotifyPlayerRef.current.togglePlay();
+      }
+      return;
+    }
+
+    await transferPlayback(nextSession.accessToken, webPlaybackDeviceId, false);
+    await playTrackOnDevice(
+      nextSession.accessToken,
+      webPlaybackDeviceId,
+      targetRound.track.spotifyUri,
+    );
+  }
 
   async function handlePlaybackToggle() {
     if (!activeRound || !webPlaybackDeviceId || !spotifyPlayerRef.current) {
@@ -829,18 +905,10 @@ export default function App() {
     setError(null);
 
     try {
-      const nextSession = await withFreshSession(async (freshSession) => freshSession);
-      await spotifyPlayerRef.current.activateElement();
-
       if (activePlayerTrackId === activeRound.track.id) {
         await spotifyPlayerRef.current.togglePlay();
       } else {
-        await transferPlayback(nextSession.accessToken, webPlaybackDeviceId, false);
-        await playTrackOnDevice(
-          nextSession.accessToken,
-          webPlaybackDeviceId,
-          activeRound.track.spotifyUri,
-        );
+        await playRoundTrack(activeRound);
       }
 
       setWebPlaybackStatus(null);
@@ -1104,6 +1172,17 @@ export default function App() {
                     </div>
 
                     <div className="player-status-row">
+                      <label className="player-autoplay-toggle">
+                        <input
+                          type="checkbox"
+                          checked={isAutoPlayEnabled}
+                          onChange={(event) => {
+                            setIsAutoPlayEnabled(event.target.checked);
+                            autoPlayAttemptedTrackIdRef.current = null;
+                          }}
+                        />
+                        <span>Auto play</span>
+                      </label>
                       <span className={`player-status ${isWebPlaybackReady ? 'ready' : 'pending'}`}>
                         {isWebPlaybackReady ? 'Browser player ready' : 'Starting browser player'}
                       </span>
@@ -1138,48 +1217,38 @@ export default function App() {
                     <p className={`reveal-copy ${activeRound.isCorrect ? 'good' : 'bad'}`}>
                       {resultLabel(activeRound)}
                     </p>
-
-                    {!activeRound.isOnList ? (
-                      <div className="reveal-actions">
-                        <a
-                          className="button button-secondary"
-                          href={activeRound.track.spotifyUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Open in Spotify
-                        </a>
-                        <button
-                          className="button button-primary"
-                          type="button"
-                          disabled={isAddingTrack}
-                          onClick={() => void handleAddTrack()}
-                        >
-                          {isAddingTrack ? 'Adding...' : 'Add to my list'}
-                        </button>
-                        <button
-                          className="button button-ghost"
-                          type="button"
-                          disabled={isLoadingRound}
-                          onClick={() => void loadNextRound()}
-                        >
-                          Skip and next song
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        className="button button-ghost"
-                        type="button"
-                        disabled={isLoadingRound}
-                        onClick={() => void loadNextRound()}
-                      >
-                        Next song now
-                      </button>
-                    )}
                   </div>
                 ) : (
                   <p className="hint-copy">Make the call.</p>
                 )}
+
+                {pendingAddTrack ? (
+                  <div className="add-panel">
+                    <div className="add-panel-copy">
+                      <p className="eyebrow">Previous Find</p>
+                      <strong>{pendingAddTrack.name}</strong>
+                      <span>{pendingAddTrack.artistLine}</span>
+                    </div>
+                    <div className="reveal-actions">
+                      <a
+                        className="button button-secondary"
+                        href={pendingAddTrack.spotifyUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open in Spotify
+                      </a>
+                      <button
+                        className="button button-primary"
+                        type="button"
+                        disabled={isAddingTrack}
+                        onClick={() => void handleAddTrack()}
+                      >
+                        {isAddingTrack ? 'Adding...' : 'Add to my list'}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div className="empty-state">
