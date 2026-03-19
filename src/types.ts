@@ -29,6 +29,7 @@ export interface CollectionState {
   summary: CollectionSummary;
   tracks: GameTrack[];
   trackIds: Set<string>;
+  trackKeys: Set<string>;
 }
 
 export interface GameRound {

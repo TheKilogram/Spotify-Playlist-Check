@@ -101,6 +101,26 @@ function formatDuration(ms: number) {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
+function normalizeSongFragment(value: string) {
+  return value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\(([^)]*(remaster|deluxe|mono|stereo|version|edit|mix|live|acoustic)[^)]*)\)/g, ' ')
+    .replace(/\[([^\]]*(remaster|deluxe|mono|stereo|version|edit|mix|live|acoustic)[^\]]*)\]/g, ' ')
+    .replace(/\s[-:]\s(.*\b(remaster|deluxe|mono|stereo|version|edit|mix|live|acoustic)\b.*)$/g, ' ')
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildTrackKey(track: Pick<GameTrack, 'name' | 'artistNames'>) {
+  const normalizedTitle = normalizeSongFragment(track.name);
+  const normalizedArtist = normalizeSongFragment(track.artistNames[0] ?? '');
+  return `${normalizedTitle}::${normalizedArtist}`;
+}
+
 function sameSession(
   left: SpotifySession | null,
   right: SpotifySession | null,
@@ -173,6 +193,7 @@ async function buildCollectionState(
     summary: collection,
     tracks,
     trackIds: new Set(tracks.map((track) => track.id)),
+    trackKeys: new Set(tracks.map((track) => buildTrackKey(track))),
   } satisfies CollectionState;
 }
 
@@ -202,6 +223,7 @@ export default function App() {
   const [webPlaybackStatus, setWebPlaybackStatus] = useState<string | null>(null);
   const [isWebPlaybackReady, setIsWebPlaybackReady] = useState(false);
   const [isActivatingPlayback, setIsActivatingPlayback] = useState(false);
+  const [playerVolume, setPlayerVolume] = useState(80);
 
   useEffect(() => {
     document.documentElement.dataset.theme = 'vinyl';
@@ -492,6 +514,16 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [round?.track.id]);
 
+  useEffect(() => {
+    if (!spotifyPlayerRef.current) {
+      return;
+    }
+
+    void spotifyPlayerRef.current.setVolume(playerVolume / 100).catch(() => {
+      setWebPlaybackStatus('Could not update the volume.');
+    });
+  }, [playerVolume]);
+
   const selectedCollection = useMemo(
     () => collections.find((collection) => collection.id === selectedCollectionId) ?? null,
     [collections, selectedCollectionId],
@@ -569,6 +601,7 @@ export default function App() {
           .find(
             (track) =>
               !activeCollection.trackIds.has(track.id) &&
+              !activeCollection.trackKeys.has(buildTrackKey(track)) &&
               !recentTrackIdsRef.current.includes(track.id),
           );
 
@@ -722,6 +755,7 @@ export default function App() {
         ...collectionState,
         tracks: updatedTracks,
         trackIds: new Set(updatedTracks.map((track) => track.id)),
+        trackKeys: new Set(updatedTracks.map((track) => buildTrackKey(track))),
         summary: {
           ...collectionState.summary,
           trackCount: updatedTracks.length,
@@ -1053,6 +1087,20 @@ export default function App() {
                         aria-label="Track progress"
                       />
                       <span>{formatDuration(currentPlaybackDurationMs)}</span>
+                    </div>
+
+                    <div className="player-volume-row">
+                      <span className="player-volume-label">Volume</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={playerVolume}
+                        onChange={(event) => setPlayerVolume(Number(event.target.value))}
+                        disabled={!isWebPlaybackReady}
+                        aria-label="Player volume"
+                      />
+                      <span className="player-volume-value">{playerVolume}%</span>
                     </div>
 
                     <div className="player-status-row">

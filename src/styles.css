@@ -593,6 +593,28 @@ a {
   accent-color: var(--accent);
 }
 
+.player-volume-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.player-volume-label,
+.player-volume-value {
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.player-volume-row input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
 .player-status-row {
   display: flex;
   flex-wrap: wrap;
@@ -949,7 +971,8 @@ a {
   }
 
   .player-main,
-  .player-progress {
+  .player-progress,
+  .player-volume-row {
     grid-template-columns: 1fr;
   }
 
